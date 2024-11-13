@@ -1,0 +1,59 @@
+Implement the continuous bag of words (CBOW) Model.
+
+# a. Data Preparation
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.layers import Embedding, Dense, Input, Lambda
+from tensorflow.keras.models import Model
+from sklearn.metrics.pairwise import cosine_similarity
+
+# Sample text corpus
+corpus = ["the quick brown fox jumps over the lazy dog", "the dog is in the garden", "the fox is in the forest"]
+
+# Tokenize and convert text to sequences
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(corpus)
+vocab_size = len(tokenizer.word_index) + 1  # Vocabulary size including an additional index for padding
+sequences = tokenizer.texts_to_sequences(corpus)
+index_word = {v: k for k, v in tokenizer.word_index.items()}  # Reverse mapping for easy access
+
+# b. Generate Training Data
+window_size = 2  # Number of context words to consider on each side of the target word
+​
+def generate_data(sequences, window_size):
+    X, y = [], []
+    for sequence in sequences:
+        for i, target in enumerate(sequence):
+            context = [sequence[j] for j in range(max(0, i - window_size), min(len(sequence), i + window_size + 1)) if j != i]
+            X.append(pad_sequences([context], maxlen=2 * window_size).flatten())  # Flatten to create a fixed input shape
+            y.append(target)
+    return np.array(X), np.array(y)
+X_train, y_train = generate_data(sequences, window_size)
+
+# c. Train Model
+embedding_dim = 50  # Dimension of the word embeddings
+input_context = Input(shape=(2 * window_size,))
+embedding = Embedding(input_dim=vocab_size, output_dim=embedding_dim, name="embedding_layer")(input_context)
+
+# Compute the mean embedding across context words
+average_embedding = Lambda(lambda x: tf.reduce_mean(x, axis=1))(embedding)
+output = Dense(vocab_size, activation='softmax')(average_embedding)
+​
+cbow_model = Model(inputs=input_context, outputs=output)
+cbow_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy')
+
+# d. Output: Get Word Embeddings and Similarity
+# Retrieve embeddings by the explicitly named layer
+word_embeddings = cbow_model.get_layer('embedding_layer').get_weights()[0]
+​
+# Function to find similar words based on cosine similarity
+def find_similar_words(word, embeddings, word_index, index_word, top_n=5):
+    word_vector = embeddings[word_index[word]].reshape(1, -1)
+    similarities = cosine_similarity(word_vector, embeddings).flatten()
+    similar_ids = similarities.argsort()[-top_n-1:-1][::-1]  # Get indices of most similar words
+    return [index_word[i] for i in similar_ids if i != word_index[word]]
+
+# Example usage: Find words similar to "fox"
+print("Words similar to 'fox':", find_similar_words("fox", word_embeddings, tokenizer.word_index, index_word))
